@@ -18,7 +18,8 @@
   libxslt,
   bzip2,
   zlib,
-  pcre,
+  pcre2,
+  poppler,
   libx11,
   libxext,
   libxtst,
@@ -26,7 +27,6 @@
   SDL2,
   libGL,
   libGLU,
-  poppler,
   postgresql,
   libmysqlclient,
   unixodbc,
@@ -71,7 +71,8 @@ stdenv.mkDerivation rec {
     libxslt
     bzip2
     zlib
-    pcre
+    pcre2
+    poppler
     libx11
     libxext
     libxtst
@@ -81,7 +82,6 @@ stdenv.mkDerivation rec {
     SDL2
     libGL
     libGLU
-    poppler
     postgresql
     libmysqlclient
     unixodbc
@@ -101,12 +101,7 @@ stdenv.mkDerivation rec {
     ./reconf-all
   '';
 
-  # Poppler 25.10 removed GooString::getLength(); lower the compat threshold
   postPatch = ''
-    substituteInPlace gb.pdf/configure.ac \
-      --replace-fail '--atleast-version=25.11.0 poppler' '--atleast-version=25.10.0 poppler'
-    substituteInPlace gb.pdf/configure.ac gb.pdf/src/CPdfDocument.cpp \
-      --replace-fail 'POPPLER_VERSION_25_11_0' 'POPPLER_VERSION_25_10_0'
     # Remove WebView dependency (requires QtWebEngine)
     sed -i '/WebView/d' comp/src/gb.form.editor/.src/test/FTestEditor.form \
       comp/src/gb.form.editor/.src/test/FTestEditor.class
@@ -129,6 +124,8 @@ stdenv.mkDerivation rec {
     "--enable-dbus"
     "--disable-gtk"
     "--disable-qt4"
+    # The relay does not use PDF support, which requires an older Poppler API.
+    "--disable-pdf"
   ];
 
   enableParallelBuilding = true;

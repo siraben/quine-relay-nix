@@ -9,23 +9,40 @@ Ruby program again.
 ## Quick start
 
 ```sh
-git clone https://github.com/siraben/quine-relay-nix.git
-cd quine-relay-nix
+git clone --branch nix https://github.com/siraben/quine-relay.git
+cd quine-relay
+nix build -L    # builds the environment and runs all 128 steps in the sandbox
+```
+
+Supported system: **x86_64-linux**. Both Nixpkgs and the relay source are pinned
+in `flake.lock`. The build runs upstream's `make check`: it compares the final
+Ruby program byte-for-byte and checks every intermediate checksum. `result/`
+contains `QR.rb`, `QR2.rb`, and the verified `SHA256SUMS`.
+
+```sh
+nix fmt             # Nixpkgs' nixfmt formatter
+nix flake check -L  # nixfmt, Statix, Deadnix, and the complete relay build
+nix flake update   # update all inputs; rerun checks afterwards
+```
+
+For interactive work:
+
+```sh
 git clone https://github.com/mame/quine-relay.git upstream
 nix develop
 cd upstream
-make    # runs all 128 steps, takes ~30 minutes
+make check
 ```
 
-The final `make` target runs `diff -s QR.rb QR2.rb` to verify the cycle is
-complete.
+The interactive checkout is independent of the locked build source; use the
+`relay` revision in `flake.lock` to reproduce that exact version.
 
 ## What this provides
 
 `nix develop` gives you a shell with every compiler, interpreter, and tool the
 relay needs. No system packages, no Docker, no Ubuntu — just Nix.
 
-**23 custom packages** not in nixpkgs (or patched for compatibility):
+Custom packages not in nixpkgs (or packaged for relay compatibility):
 
 | Package | Language | Notes |
 |---------|----------|-------|
@@ -41,26 +58,29 @@ relay needs. No system packages, no Docker, no Ubuntu — just Nix.
 | `spl2c` | Shakespeare | SPL-to-C transpiler + libspl |
 | `livescript` | LiveScript | npm package |
 | `mustache-cli` | Mustache | Ruby gem |
-| `afnix` | AFNIX | Debian source with GCC 15 patches |
+| `afnix` | AFNIX | Debian source, using its supported GCC 14 toolchain |
 | `genius` | GEL/Genius | GNOME project, CLI-only |
 | `yorick` | Yorick | Custom build system with path fixes |
 | `gpt-portugol` | G-Portugol | Requires ANTLR 2.7 |
 | `parser3` | Parser 3 | Patched nested ltdl autotools |
 | `swift-bin` | Swift | Prebuilt binary with Nix sysroot wrapper |
 | `gambas3` | Gambas | Full build with gbr3 argv[0] fix |
-| `aplus` | A+ | Built with clang + extensive C++ patches |
+| `ksh93` | ksh | Maintained 93u+m; Nixpkgs' Ksh 2020 is incompatible |
 | `gm2` | Modula-2 | GCC rebuilt with `--enable-languages=c,c++,m2,objc` |
 | `acme-chef` | Chef | Perl Acme::Chef module |
 | `vendor-env` | — | Pre-built vendor/local tree |
 
-**5 nixpkgs overrides** for GCC 15 / C23 compatibility:
+The old INTERCAL, npiet, Icon, and mbedTLS overrides are no longer needed.
+The sole Nixpkgs source patch fixes Gnuplot 6.0.5's long-line reader; 6.0.6
+still has the same regression. Gambas' unused legacy PDF backend is disabled
+instead of patching it for newer Poppler.
 
-- `intercal` — force `stdbool.h`, build with `-std=gnu11`
-- `npiet` — fix signal handler signature, `-std=gnu11`
-- `icon-lang` — `-std=gnu11` for K&R function declarations
-- `mbedtls_2` — disable failing tests (needed by haxe)
+The shell selects Scala 2, TypeScript 5, .NET 10, and Java 25 to match the
+upstream interfaces. It uses Nixpkgs' bootstrap Gforth because the newer
+interpreter depends on a broken SWIG fork. PHP deprecation notices and .NET's
+online NuGet audit are disabled so they cannot corrupt generated programs.
 
-**10 wrapper scripts** to bridge Nix and the Makefile's expectations:
+Compatibility wrappers bridge Nix and the Makefile's expectations:
 
 | Wrapper | Why |
 |---------|-----|
@@ -68,8 +88,10 @@ relay needs. No system packages, no Docker, no Ubuntu — just Nix.
 | `gcc` | Routes `.m` files to ObjC GCC; `-std=gnu89` for INTERCAL |
 | `gdc` | Translates gdc flags to ldc2 |
 | `stty` | Silences errors when no terminal is present |
-| `scilab-cli` | Filters grep warnings from stdout |
-| `axi` | Decodes AFNIX double-encoded UTF-8 output |
+| `scilab-cli` | Explicit headless mode and Nix-provided terminal definitions |
+| `clojure` | Uses the bundled runtime without Maven downloads |
+| `gap` | Disables unused package autoloading and its stdout notices |
+| `java` / `javac` | Selects Java 25 ahead of propagated older JDKs |
 | `gbs3` / `gbr3` | Fixes Gambas Qt wrapper argv[0] detection |
 | `lci` | Maps to `lolcode-lci` |
 | `bsh` | Runs BeanShell JAR via `java -classpath` |
@@ -81,11 +103,11 @@ Ruby → Rust → Scala → Scheme → Scilab → sed → Shakespeare → S-Lang
 Squirrel → Standard ML → Subleq → SurgeScript → Swift → Tcl → tcsh → Thue →
 TypeScript → Unlambda → Vala → Velato → Verilog → Vimscript → Visual Basic →
 WebAssembly (binary) → WebAssembly (text) → Whitespace → XSLT → Yabasic →
-Yorick → Zoem → zsh → A+ → Ada → AFNIX → Aheui → ALGOL 68 → Ante →
+Yorick → Zoem → zsh → Ada → AFNIX → Aheui → ALGOL 68 → Ante →
 AspectJ → Asymptote → ATS → Awk → bash → bc → BeanShell → Befunge → BLC8 →
 Brainfuck → C → C++ → C# → Chef → Clojure → CMake → COBOL → CoffeeScript →
 Common Lisp → Crystal → D → dc → Dhall → Elixir → Emacs Lisp → Erlang →
-Execline → F# → FALSE → Flex → Fish → Forth → FORTRAN 77 → Fortran 90 →
+Execline → F# → FALSE → Fennel → Flex → Fish → Forth → FORTRAN 77 → Fortran 90 →
 Gambas script → GAP → GDB → GEL (Genius) → Gnuplot → Go → GolfScript →
 G-Portugol → Grass → Groovy → Gzip → Haskell → Haxe → Icon → INTERCAL →
 Jasmin → Java → JavaScript → Jq → JSFuck → Kotlin → ksh → Lazy K →

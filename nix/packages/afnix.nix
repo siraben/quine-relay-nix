@@ -24,7 +24,7 @@ stdenv.mkDerivation rec {
     for p in debian/patches/0*.patch debian/patches/Use-dpkg-buildflags-for-gcc-12.patch; do
       case "$p" in
         *0002-allRpath*) echo "Skipping $p (impure paths)" ;;
-        *) echo "Applying $p"; patch -p1 < "$p" || true ;;
+        *) echo "Applying $p"; patch -p1 < "$p" ;;
       esac
     done
 
@@ -40,10 +40,6 @@ stdenv.mkDerivation rec {
   buildPhase = ''
     runHook preBuild
     mkdir -p bld/cnf
-    # Create config files for newer gcc versions by symlinking to gc14
-    for v in 15 16; do
-      cp cnf/mak/afnix-gc14.mak cnf/mak/afnix-gc$v.mak
-    done
     # Fix missing termios.h include
     sed -i '1i #include <termios.h>' src/lib/plt/shl/ctrm.cxx 2>/dev/null || true
     # Fix impure rpath and dpkg-buildflags references
@@ -53,9 +49,6 @@ stdenv.mkDerivation rec {
     find cnf/mak -name '*.mak' -exec sed -i 's|\$(shell dpkg-buildflags[^)]*)||g' {} +
     # Disable -Werror (GCC 15 has new warnings)
     find cnf/mak -name '*.mak' -exec sed -i 's/-Werror//g' {} +
-    # Add GCC 15 version mapping to afnix-vcomp
-    sed -i 's/13\*) ccvers=13 ;;/13*) ccvers=13 ;;\n       14*) ccvers=14 ;;\n       15*) ccvers=15 ;;/' cnf/bin/afnix-vcomp
-    sed -i 's/14\*) ccvers=14 ;;/14*) ccvers=14 ;;\n       15*) ccvers=15 ;;/' cnf/bin/afnix-vcomp
     ./cnf/bin/afnix-setup -o --prefix $out
     make
     runHook postBuild

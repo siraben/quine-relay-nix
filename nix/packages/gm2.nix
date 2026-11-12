@@ -2,7 +2,6 @@
   lib,
   stdenv,
   runCommand,
-  wrapCC,
   gcc,
   flex,
   libgcc,

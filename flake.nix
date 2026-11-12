@@ -4,6 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    relay = {
+      url = "github:mame/quine-relay";
+      flake = false;
+    };
   };
 
   outputs =
@@ -11,17 +15,18 @@
       self,
       nixpkgs,
       flake-utils,
+      relay,
     }:
     let
       overlay = import ./nix/overlay.nix;
     in
-    flake-utils.lib.eachDefaultSystem (
+    # The binary toolchains (notably Swift and Scilab) target x86_64 Linux.
+    flake-utils.lib.eachSystem [ "x86_64-linux" ] (
       system:
       let
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ overlay ];
-          config.permittedInsecurePackages = [ "mbedtls-2.28.10" ];
         };
 
         inherit (pkgs) lib;
@@ -35,10 +40,22 @@
         linkBin =
           name: target: pkgs.runCommand name { } "mkdir -p $out/bin; ln -s ${target} $out/bin/${name}";
 
+        # No optional GAP packages are used; autoload emits a missing-package
+        # notice to stdout in nixpkgs' standard package set.
+        gap-wrapper = pkgs.writeShellScriptBin "gap" ''
+          exec ${pkgs.gap}/bin/gap -A "$@"
+        '';
         lci-wrapper = wrapBin "lci" "${pkgs.lolcode}/bin/lolcode-lci";
+        # Use the bundled runtime, without resolving Maven dependencies online.
+        clojure-wrapper = pkgs.writeShellScriptBin "clojure" ''
+          exec ${pkgs.clojure}/bin/clojure -Scp ${pkgs.clojure}/libexec/clojure-tools-${pkgs.clojure.version}.jar -M "$@"
+        '';
         bsh-wrapper = pkgs.writeShellScriptBin "bsh" ''
           exec ${pkgs.jdk}/bin/java -classpath ${pkgs.bsh} bsh.Interpreter "$@"
         '';
+        # Other tools propagate older JDKs; keep the relay's Java version first.
+        java-link = linkBin "java" "${pkgs.jdk25}/bin/java";
+        javac-link = linkBin "javac" "${pkgs.jdk25}/bin/javac";
         lua53-link = linkBin "lua5.3" "${pkgs.lua5_3}/bin/lua";
         gbr3-link = linkBin "gbr3" "${pkgs.gambas3}/bin/.gbx3-wrapped";
 
@@ -47,16 +64,11 @@
         # These wrappers fix runtime issues in upstream tools when running
         # under Nix (missing paths, encoding bugs, terminal handling, etc.)
 
-        # scilab-bin 6.1.1 leaks "grep: warning:" to stdout, corrupting relay output
+        # Nix wraps the launcher, hiding the argv[0] used to select CLI mode.
+        # Select the no-window/no-JVM mode explicitly, and preserve exit status.
         scilab-cli-wrapper = pkgs.writeShellScriptBin "scilab-cli" ''
-          ${pkgs.scilab-bin}/bin/scilab-cli "$@" | grep -v '^grep: warning:'
-        '';
-
-        # AFNIX OutputTerm double-encodes UTF-8 bytes as Unicode codepoints
-        axi-wrapper = pkgs.writeShellScriptBin "axi" ''
-          ${pkgs.afnix}/bin/axi "$@" | ${pkgs.python3}/bin/python3 -c "
-          import sys; data = sys.stdin.buffer.read()
-          sys.stdout.buffer.write(bytes(ord(c) for c in data.decode('utf-8')))"
+          export TERMINFO=${pkgs.ncurses}/share/terminfo
+          exec ${pkgs.scilab-bin}/bin/scilab -nwni "$@"
         '';
 
         # gbs3.gambas uses #!/usr/bin/env gbr3; Qt wrapQtAppsHook broke argv[0]
@@ -109,22 +121,75 @@
         # All wrappers that must appear before system binaries on PATH
         wrapperPath = lib.makeBinPath [
           make-wrapper
+          java-link
+          javac-link
           gcc-wrapper
           stty-wrapper
           gbs3-wrapper
           gbr3-link
           lua53-link
           scilab-cli-wrapper
-          axi-wrapper
           lci-wrapper
           bsh-wrapper
+          clojure-wrapper
+          gap-wrapper
           gdc-wrapper
         ];
       in
       {
+        formatter = pkgs.nixfmt-tree;
+
+        checks = {
+          style =
+            pkgs.runCommand "quine-relay-nix-style"
+              {
+                nativeBuildInputs = [
+                  pkgs.nixfmt
+                  pkgs.statix
+                  pkgs.deadnix
+                ];
+              }
+              ''
+                cd ${self}
+                nixfmt --check flake.nix nix/overlay.nix nix/packages/*.nix
+                statix check .
+                deadnix --fail .
+                touch "$out"
+              '';
+          relay = self.packages.${system}.default;
+        };
+
         packages = {
+          default =
+            let
+              shell = self.devShells.${system}.default;
+            in
+            pkgs.runCommand "quine-relay-checked"
+              {
+                inherit (shell)
+                  nativeBuildInputs
+                  buildInputs
+                  C_INCLUDE_PATH
+                  LIBRARY_PATH
+                  NuGetAudit
+                  LANG
+                  ;
+              }
+              ''
+                cp -r ${relay} upstream
+                chmod -R u+w upstream
+                export HOME="$TMPDIR/home" TERM=xterm
+                mkdir -p "$HOME"
+                export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+                ${shell.shellHook}
+                cd upstream
+                make check
+                mkdir -p "$out"
+                cp QR.rb QR2.rb SHA256SUMS "$out/"
+              '';
           inherit (pkgs)
             lazyk
+            ksh93
             ratfor
             cimfomfa
             zoem
@@ -142,7 +207,6 @@
             parser3
             swift-bin
             gambas3
-            aplus
             intercal
             npiet
             icon-lang
@@ -153,6 +217,10 @@
         };
 
         devShells.default = pkgs.mkShell {
+          LANG = "C.UTF-8";
+          # The SDK includes FSharp.Core locally; do not query NuGet for audits
+          # and mix offline restore warnings into the generated relay program.
+          NuGetAudit = "false";
           packages = with pkgs; [
             # Languages listed in quine-relay order (1–128).
             # (v) = handled by ruby vendor/*.rb scripts, no separate package needed.
@@ -161,7 +229,8 @@
             ruby
             rustc
             cargo
-            scala
+            # The Makefile invokes Scala 2's class runner (scala QR).
+            scala_2_13
             guile
             #  5 Scilab     6 sed        7 Shakespeare 8 S-Lang
             scilab-bin
@@ -177,60 +246,63 @@
             tcl
             tcsh
             # 17 TypeScript 18 Unlambda(v) 19 Vala    20 Velato
-            typescript
+            # TypeScript 7 removed the Makefile's --outFile option.
+            typescript_5
             vala
             glib
             velato
             # 21 Verilog   22 Vimscript  23 Visual Basic 24-25 WebAssembly
             iverilog
             vim
-            dotnet-sdk
+            dotnet-sdk_10
             wabt
             wasmtime
             # 26 Whitespace(v) 27 XSLT  28 Yabasic   29 Yorick
             libxslt
             yabasic
             yorick
-            # 30 Zoem      31 zsh       32 A+         33 Ada
+            # 30 Zoem      31 zsh       32 Ada
             zoem
             zsh
-            aplus
             gnat
-            # 34 AFNIX     35 Aheui(v)  36 ALGOL 68   37 Ante(v)
+            # 33 AFNIX     34 Aheui(v)  35 ALGOL 68   36 Ante(v)
             afnix
             algol68g
-            # 38 AspectJ   39 Asymptote 40 ATS        41 Awk
+            # 37 AspectJ   38 Asymptote 39 ATS        40 Awk
             aspectj
             asymptote
             ats2
             gawk
-            # 42 bash      43 bc        44 BeanShell(w) 45 Befunge
+            # 41 bash      42 bc        43 BeanShell(w) 44 Befunge
             bash
             bc
             cfunge
-            # 46 BLC8(v)   47 Brainfuck(v) 48 C       49 C++
+            # 45 BLC8(v)   46 Brainfuck(v) 47 C       48 C++
             gcc
-            # 50 C#        51 Chef(v)   52 Clojure    53 CMake
+            # 49 C#        50 Chef(v)   51 Clojure    52 CMake
             mono
             clojure
             cmake
-            # 54 COBOL     55 CoffeeScript 56 Common Lisp 57 Crystal
+            # 53 COBOL     54 CoffeeScript 55 Common Lisp 56 Crystal
             gnucobol.bin
             coffeescript
             clisp
             crystal
-            # 58 D         59 dc        60 Dhall      61 Elixir
+            # 57 D         58 dc        59 Dhall      60 Elixir
             ldc
             dhall
-            elixir
-            # 62 Emacs Lisp 63 Erlang   64 Execline   65 F#
+            beamPackages.elixir
+            # 61 Emacs Lisp 62 Erlang   63 Execline   64 F#
             emacs
-            erlang
+            beamPackages.erlang
             execline
-            # 66 FALSE(v)  67 Flex      68 Fish       69 Forth
+            # 65 FALSE(v)  66 Fennel    67 Flex      68 Fish       69 Forth
+            luaPackages.fennel
             flex
             fish
-            gforth
+            # The current gforth depends on a broken SWIG fork; the packaged
+            # bootstrap interpreter is sufficient for the relay's Forth code.
+            gforth.bootForth
             # 70 FORTRAN77 71 Fortran90 72 Gambas     73 GAP
             f2c
             gfortran
@@ -252,12 +324,14 @@
             # 86 INTERCAL  87 Jasmin    88 Java        89 JavaScript
             intercal
             jasmin
-            jdk
+            # Current upstream uses Java 25 compact source files and java.lang.IO.
+            jdk25
             nodejs
             # 90 Jq        91 JSFuck    92 Kotlin      93 ksh
             jq
             kotlin
-            ksh
+            # The relay uses ksh93 arithmetic substring offsets, broken in ksh2020.
+            ksh93
             # 94 Lazy K    95 LiveScript 96 LLVM asm   97 LOLCODE
             lazyk
             livescript
@@ -286,7 +360,8 @@
             perl
             rakudo
             #118 PHP      119 Piet     120 Pike       121 PostScript
-            php
+            # PHP 8.5 deprecates the relay's intentional float-to-int casts.
+            (php.buildEnv { extraConfig = "error_reporting = E_ALL & ~E_DEPRECATED"; })
             npiet
             pike
             ghostscript
@@ -301,6 +376,7 @@
             regina
 
             # Build tools needed by multiple steps
+            which
             pkg-config
             bison
 
@@ -312,14 +388,13 @@
             bsh-wrapper
             gdc-wrapper
             scilab-cli-wrapper
-            axi-wrapper
             gbs3-wrapper
             gbr3-link
             lua53-link
           ];
 
           # INTERCAL headers and static libc for ick-generated C code
-          C_INCLUDE_PATH = "${pkgs.intercal}/include/ick-0.30";
+          C_INCLUDE_PATH = "${pkgs.intercal}/include/ick-${pkgs.intercal.version}";
           LIBRARY_PATH = lib.makeLibraryPath [
             pkgs.intercal
             pkgs.glibc.static

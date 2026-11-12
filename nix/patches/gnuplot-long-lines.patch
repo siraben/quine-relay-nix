@@ -1,0 +1,15 @@
+diff --git a/src/misc.c b/src/misc.c
+--- a/src/misc.c
++++ b/src/misc.c
+@@ -329,6 +329,11 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
+ 			extend_input_line();
+ 			left = gp_input_line_len - len;
+ 		    }
++		    /* Finish reading a long physical line before parsing it. */
++		    if (len > 0 && gp_input_line[len-1] != '\n' && !feof(fp)) {
++			start = len;
++			continue;
++		    }
+ 		} else if (datablock_input_line) {
+ 		    int chunk_len = strlen(*datablock_input_line);
+ 		    while (left <= chunk_len) {

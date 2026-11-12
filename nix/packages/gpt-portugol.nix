@@ -4,7 +4,6 @@
   fetchgit,
   autoreconfHook,
   pkg-config,
-  pcre,
   pcre2,
   antlr2,
   libtool,
@@ -26,7 +25,6 @@ stdenv.mkDerivation rec {
     libtool
   ];
   buildInputs = [
-    pcre
     pcre2
     antlr2
   ];

@@ -1,5 +1,4 @@
 {
-  lib,
   symlinkJoin,
   spl2c,
   cfunge,
