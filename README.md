@@ -9,8 +9,8 @@ Ruby program again.
 ## Quick start
 
 ```sh
-git clone --branch nix https://github.com/siraben/quine-relay.git
-cd quine-relay
+git clone https://github.com/siraben/quine-relay-nix.git
+cd quine-relay-nix
 nix build -L    # builds the environment and runs all 128 steps in the sandbox
 ```
 
