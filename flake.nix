@@ -342,35 +342,35 @@
             m4
             gnumake
             minizinc
-            #102 Modula-2 103 MSIL     104 Mustache   105 NASM
+            # 102 Modula-2 103 MSIL     104 Mustache   105 NASM
             gm2
             mustache-cli
             nasm
-            #106 Neko     107 Nickle   108 Nim        109 Objective-C(w)
+            # 106 Neko     107 Nickle   108 Nim        109 Objective-C(w)
             neko
             nickle
             nim
-            #110 OCaml    111 Octave   112 Ook!(v)    113 PARI/GP
+            # 110 OCaml    111 Octave   112 Ook!(v)    113 PARI/GP
             ocaml
             octave
             pari
-            #114 Parser 3 115 Pascal   116 Perl 5     117 Perl 6
+            # 114 Parser 3 115 Pascal   116 Perl 5     117 Perl 6
             parser3
             fpc
             perl
             rakudo
-            #118 PHP      119 Piet     120 Pike       121 PostScript
+            # 118 PHP      119 Piet     120 Pike       121 PostScript
             # PHP 8.5 deprecates the relay's intentional float-to-int casts.
             (php.buildEnv { extraConfig = "error_reporting = E_ALL & ~E_DEPRECATED"; })
             npiet
             pike
             ghostscript
-            #122  Prolog       123  Promela     124  Python         125  R
+            # 122  Prolog       123  Promela     124  Python         125  R
             swi-prolog
             spin
             python3
             R
-            #126  Ratfor       127  rc          128  REXX
+            # 126  Ratfor       127  rc          128  REXX
             ratfor
             rc
             regina
